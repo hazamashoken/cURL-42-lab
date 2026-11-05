@@ -1,0 +1,86 @@
+name: crack-the-cracker
+x-python: &python
+  image: crack-the-cracker-python:1.0
+  build: .
+  init: true
+services:
+  provision:
+    <<: *python
+    command: ["python", "-m", "lab.provision"]
+    environment:
+      LAB_HOST: ${LAB_HOST:?Set LAB_HOST in .env}
+      TEAM_COUNT: ${TEAM_COUNT:-10}
+    volumes:
+      - fixtures:/fixtures
+      - ftp-data:/ftp
+  http:
+    <<: *python
+    restart: unless-stopped
+    environment:
+      WORKER_CALLBACK_SECRET: ${WORKER_CALLBACK_SECRET:?Set WORKER_CALLBACK_SECRET in .env}
+    ports:
+      - "8080:8080"
+    volumes:
+      - fixtures:/fixtures:ro
+      - progress:/state
+    depends_on:
+      provision:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  ftp:
+    <<: *python
+    command: ["python", "-m", "lab.ftp"]
+    restart: unless-stopped
+    environment:
+      FTP_PASSIVE_ADDRESS: ${FTP_PASSIVE_ADDRESS:?Set FTP_PASSIVE_ADDRESS in .env}
+    ports:
+      - "2121:2121"
+      - "30000-30009:30000-30009"
+    volumes:
+      - fixtures:/fixtures:ro
+      - ftp-data:/ftp
+    depends_on:
+      provision:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',2121),2); assert s.recv(100).startswith(b'220'); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  mqtt:
+    image: crack-the-cracker-mosquitto:2.0.22
+    build: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-t", "lab/health", "-m", "ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  worker:
+    <<: *python
+    command: ["python", "-m", "lab.worker"]
+    restart: unless-stopped
+    environment:
+      WORKER_CALLBACK_SECRET: ${WORKER_CALLBACK_SECRET:?Set WORKER_CALLBACK_SECRET in .env}
+    volumes:
+      - fixtures:/fixtures:ro
+    depends_on:
+      http:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; assert Path('/tmp/worker-ready').exists()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  fixtures:
+  ftp-data:
+  progress:

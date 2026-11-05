@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crack the Cracker — Three Protocols, One Tool</title>
+<style>
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101925; color: #f9f4df; }
+body { margin: 0; padding: 3vw; }
+header { display: flex; justify-content: space-between; align-items: end; gap: 2rem; border-bottom: 2px solid #485968; padding-bottom: 1.5rem; }
+h1 { font-size: clamp(2rem, 4vw, 4.5rem); margin: 0; line-height: 1.05; }
+.subtitle { color: #b8cad8; font-size: 1.4rem; }
+#count { font-size: 2rem; color: #9ff2c9; white-space: nowrap; }
+#status { min-height: 1.5em; color: #b8cad8; }
+#teams { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 1.2rem; }
+article { background: #1c2a3a; border: 2px solid #485968; border-radius: 16px; padding: 1.3rem; text-align: center; }
+h2 { font-size: 2rem; margin: 0; }
+.state { font-weight: bold; font-size: 1.4rem; }
+time { display: block; min-height: 1.5em; color: #c2d2de; }
+svg { width: 180px; height: 90px; overflow: visible; }
+.left, .right { transition: transform .6s ease; }
+.unlocked { border-color: #9ff2c9; background: #183c39; }
+.unlocked .left { transform: translateX(-17px) rotate(-8deg); transform-origin: center; }
+.unlocked .right { transform: translateX(17px) rotate(8deg); transform-origin: center; }
+.unlocked .state { color: #9ff2c9; }
+@media (prefers-reduced-motion: reduce) { .left,.right { transition: none; } }
+@media (max-width: 650px) { header { display: block; } }
+</style>
+</head>
+<body>
+<header><div><h1>Crack the Cracker</h1><p class="subtitle">Three Protocols, One Tool · HTTP → FTP → MQTT</p></div><div id="count" role="status">Loading…</div></header>
+<p id="status" role="status">Connecting to mission control…</p>
+<main id="teams" aria-label="Team progress"></main>
+<template id="card"><article><h2></h2>
+<svg viewBox="0 0 180 90" aria-hidden="true"><g fill="#f0bf64" stroke="#101925" stroke-width="3"><path class="left" d="M10 20L38 32L52 18L90 18L83 34L92 46L82 58L90 72L52 72L38 58L10 70L19 45Z"/><path class="right" d="M170 20L142 32L128 18L90 18L83 34L92 46L82 58L90 72L128 72L142 58L170 70L161 45Z"/></g></svg>
+<p class="state"></p><time></time></article></template>
+<script>
+const cards = new Map();
+async function refresh() {
+  try {
+    const response = await fetch('/progress', {cache: 'no-store'});
+    if (!response.ok) throw new Error('Progress unavailable');
+    const progress = await response.json();
+    document.querySelector('#count').textContent = `${progress.completed} / ${progress.teams.length} unlocked`;
+    const currentTeams = new Set(progress.teams.map(team => team.team));
+    for (const [team, card] of cards) {
+      if (!currentTeams.has(team)) { card.remove(); cards.delete(team); }
+    }
+    for (const team of progress.teams) {
+      if (!cards.has(team.team)) {
+        const card = document.querySelector('#card').content.firstElementChild.cloneNode(true);
+        card.querySelector('h2').textContent = team.team;
+        document.querySelector('#teams').append(card);
+        cards.set(team.team, card);
+      }
+      const card = cards.get(team.team);
+      card.classList.toggle('unlocked', team.unlocked);
+      card.querySelector('.state').textContent = team.unlocked ? 'Unlocked' : 'Locked';
+      const time = card.querySelector('time');
+      time.textContent = team.completed_at ? new Date(team.completed_at).toLocaleTimeString() : 'Awaiting the code';
+      time.dateTime = team.completed_at || '';
+    }
+    document.querySelector('#status').textContent = 'Live progress · updates every 2 seconds';
+  } catch (error) {
+    document.querySelector('#status').textContent = 'Connection lost — showing last known progress. Retrying…';
+  } finally { setTimeout(refresh, 2000); }
+}
+refresh();
+</script>
+</body></html>
